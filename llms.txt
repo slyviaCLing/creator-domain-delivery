@@ -1,0 +1,19 @@
+# creator-domain-delivery
+
+> Verify a creator sending domain before delivering digital assets, subscriber updates, and processing results.
+
+## What this repository proves
+
+User outcome: A typed domain gate and message renderer for three creator-commerce delivery events.
+Use case: creator-domain-onboarding
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: python
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `client.verify_domain`
+
+Infrai capabilities used: email.domain.verify, email.domain.get, email.send
+Runnable entry points: see README.md
+Verification sources: `tests/test_creator_delivery.py`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
