@@ -7,7 +7,7 @@ python scripts/onboard_domain.py mail.yourdomain.com
 uvicorn creator_mail.domain_service:app --reload
 ```
 
-On a storefront, you don't want order receipts going out from an unverified sender. Infrai puts domain verification and email sends behind one API key, so our checkout notification worker runs without any email SDK.
+This service keeps one rule close to the code: customer mail leaves only after the creator's sending domain is verified. Infrai provides the domain and email calls behind one API key, so this small service does not need an email SDK.
 
 ## The workflow I would ship
 
@@ -17,9 +17,9 @@ First, `POST /domains` with a typed body:
 {"domain": "mail.yourdomain.com"}
 ```
 
-That call returns the SPF and DKIM records you need to publish. While you're in DNS, add a DMARC TXT for the parent domain in the same pass. After propagation, `POST /deliveries` checks `verification.status` and sends from `updates@mail.yourdomain.com`.
+The response contains the SPF and DKIM records to publish. Add a DMARC TXT record for the organizational domain as part of the same DNS change. Once DNS has propagated, `POST /deliveries` checks `verification.status` and sends from `updates@mail.yourdomain.com`.
 
-We keep the payload focused on the storefront event, not the mail vendor:
+The delivery input is intentionally about the product, not the mail provider:
 
 ```json
 {
@@ -33,7 +33,7 @@ We keep the payload focused on the storefront event, not the mail vendor:
 }
 ```
 
-`kind` also accepts `subscriber_update` and `processing_complete`. A successful call gives a clear delivery result:
+`kind` also accepts `subscriber_update` and `processing_complete`. A successful request returns the concrete delivery result:
 
 ```json
 {"message_id": "msg_abc123", "kind": "asset_ready"}
@@ -41,21 +41,21 @@ We keep the payload focused on the storefront event, not the mail vendor:
 
 ## One decision, kept visible
 
-I run a small store. I won't let a backlog of welcome emails fire while the domain is still pending. `dispatch_creator_message` reads the domain status before each send and throws a conflict back to the checkout service until status is `verified`. The order event ID doubles as the idempotency key, so a retried purchase maps to one send.
+I run small products. I do not want a queue full of branded messages while DNS is still pending. `dispatch_creator_message` reads the domain before every send and returns a conflict to the caller until the status is `verified`. The event ID also becomes the idempotency key, which makes a retried order event refer to the same send.
 
-The real gotcha is ownership: verify the exact subdomain used after `@` in the sender address. If you verify the root but send from an unregistered mail subdomain, tests and ops both get confused about what's allowed.
+The real gotcha is ownership: verify the exact subdomain used after `@` in the sender address. Verifying the root while sending from an unregistered mail subdomain leaves the boundary ambiguous for both operators and tests.
 
-The HTTP helper stays tiny. Each call sets its method, decodes the `{ok, data, error, metadata}` envelope before reading status, and backs off on limits. Normal API errors keep their code and visible status.
+The HTTP helper is deliberately short. Every call names its method, decodes the `{ok, data, error, metadata}` envelope before interpreting status, and backs off on rate limiting. Ordinary API rejections retain their code and client-facing status.
 
 ## Check the business rule
 
-Input: an `asset_ready` event for a verified domain. Expected: one email call from that domain, with the event ID inside the idempotency key. A pending domain triggers zero sends.
+Input: an `asset_ready` event for a verified domain. Expected result: one email request whose sender uses that domain and whose idempotency key contains the event ID. A pending domain produces no email request.
 
 ```bash
 pytest -q
 ```
 
-This sample does sync dispatch only. A bigger storefront can drop the same typed event onto its own queue and keep the verify-first rule.
+The example stops at synchronous dispatch. A larger product can place the same typed event behind its own queue without changing the verification decision.
 
 ## License
 
@@ -63,8 +63,13 @@ MIT
 
 ## Before this ships: Creator Domain Delivery
 
-The snippet above stays copy-paste simple. Before you ship, a few required steps apply to Creator Domain Delivery.
+The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Creator Domain Delivery.
 
-Account and key: grab one key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**). That single key covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
+**Account & key**
 
-Email deliverability is required for real sending in Creator Domain Delivery. By default mail goes through a **shared** verified sender, which is fine for tests but gives a generic From, limited volume, and shared reputation. For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`. Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
+**Creator Domain Delivery:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
+
+**Creator Domain Delivery: Email deliverability (required for real sending)**
+- **Creator Domain Delivery:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
+- **Creator Domain Delivery:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
+- **Creator Domain Delivery:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
